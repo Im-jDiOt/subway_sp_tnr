@@ -35,7 +35,7 @@ line_idxs[5] += list(range(569,576))
 
 
 driver = init_driver()
-with open('subway_data.csv', 'w', newline='', encoding='utf-8') as csvfile:
+with open('results/subway_data.csv', 'w', newline='', encoding='utf-8') as csvfile:
     writer = csv.writer(csvfile)
     writer.writerow(['from_id', 'from_line', 'from_name', 'to_id', 'to_line', 'to_name', 'duration'])
 

@@ -2,7 +2,7 @@ import random
 import time
 import csv
 import networkx as nx
-from data.process_data import node_adjacent_transfer_dict, line_node_dict, node_id_dict, id_node_dict, G, TG, \
+from data.process_data_w_weight import node_adjacent_transfer_dict, line_node_dict, node_id_dict, id_node_dict, G, TG, \
     transfer_nodes
 
 def node2transit(node):
@@ -57,8 +57,8 @@ def transit2transit(tg):
     APSP 알고리즘을 사용해 transit hash table을 만드는
     transit node routing에서 가장 핵심적인 부분!!
 
-    일단 nx에서 제공하는 기본적인 apsp 알고리즘(dijkstra로 구현되어 있음)을 사용하고
-    시간이 된다면 thorup 혹은 dial 을 사용해 O(ev)?나 O(cv+e) apsp를 구하는 걸 해보고 싶음.
+    일단 여기에선 nx에서 제공하는 기본적인 apsp 알고리즘(dijkstra로 구현되어 있음)을 사용함.
+    이 알고리즘은 O((E + VlogV) V) 시간 복잡도를 가짐.
     """
     res = {}
 
@@ -91,7 +91,8 @@ def transit2transit_dial(tg):
     def single_source_dial(graph, source):
         """
         Dial's algorithm을 이용해 단일 출발점(source)에서 다른 모든 노드까지
-        최단 경로 거리(distances)와 predecessor(경로 재구성용 전임자)를 구한다.
+        최단 경로 거리(distances)와 predecessor(경로 재구성용)를 구한다.
+        시간복잡도는 O((CV+E)V) 임. 이때 C는 엣지 가중치의 최대값.
 
         Returns:
             distances: {node: 최단거리(int or float('inf'))}
@@ -226,7 +227,7 @@ if not share transfer:
                 path = line_path[node1_idx:node2_idx + 1]
                 time = sum(G[u][v]['weight'] for u, v in zip(path[:-1], path[1:]))
             return path, time
-        else: # 6,7,8 case2: x&y share common transfer node -> line이 다르면 애초에 same transfer node가 있을 수 없음.
+        else: # 6,7,8 case2: x&y share common transfer node
             common_transfer = common_transfers.pop()
             path1, time1 = node2transit_cases1[adjacent_transfers1.index(common_transfer)]
             path2, time2 = node2transit_cases2[adjacent_transfers2.index(common_transfer)]
@@ -264,121 +265,122 @@ if __name__ == "__main__":
     RED = '\033[91m'  # 빨간색
     RESET = '\033[0m'  # 색상 초기화
 
-    NUM_OF_TEST = 1000
-
-    all_g_nodes = list(G.nodes)
-    test_nodes = []
-    error_msgs = []
-    with open('test_nodes.csv', 'r', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        next(reader)
-        for row in reader:
-            node1 = (row[0], row[1])
-            node2 = (row[2], row[3])
-            test_nodes.append([node1, node2])
-
-    # for _ in range(NUM_OF_TEST):
-    #     node1 = random.choice(all_g_nodes)
-    #     node2 = random.choice(all_g_nodes)
-    #     test_nodes.append([node1, node2])
-
-    print('== Precomputing transit2transit table ==')
-    precomputed_start_time = time.time()
-    t2t_table = transit2transit(TG)
-    # t2t_table = transit2transit_dial(TG)
-    precomputed_end_time = time.time()
-    precomputed_time = precomputed_end_time - precomputed_start_time
-    print('Precomputed transit2transit table in {:.6f} seconds'.format(precomputed_time))
-
-    total_execution_time = 0
-
-    for i, (node1, node2) in enumerate(test_nodes):
-        print(f'\n== Test Case {i+1}/{len(test_nodes)}: {node1} -> {node2} ==')
-        start_time = time.time()
-        try:
-            my_path, my_time = transit_node_routing(node1, node2, t2t_table)
-            end_time = time.time()
-            execution_time = end_time - start_time
-            total_execution_time += execution_time
-
-            print(f'Execution time: {execution_time:.6f} seconds')
-            print('My path:', my_path)
-            print('My time:', int(my_time) if isinstance(my_time, (int, float)) else my_time)
-
-            answer_path = nx.dijkstra_path(G, source=node1, target=node2, weight='weight')
-            answer_time = nx.dijkstra_path_length(G, source=node1, target=node2, weight='weight')
-            print('Answer path:', answer_path)
-            print("Answer time", int(answer_time))
-
-            if int(my_time) == int(answer_time):
-                print(f'{GREEN}Success!{RESET}')
-            else:
-                print(f'{RED}Fail!{RESET}')
-                print(f'My time: {int(my_time)}, Answer time: {int(answer_time)}')
-                print(f'My path: {my_path}, Answer path: {answer_path}')
-                error_msgs.append(f'Fail for [{node1}, {node2}]: My time: {int(my_time)}, Answer time: {int(answer_time)}')
-        except Exception as e:
-            print(f'{RED}Error during transit_node_routing for [{node1}, {node2}]: {e}{RESET}')
-            error_msgs.append(f'Error for [{node1}, {node2}]: {e}')
-
-    print(f"precompuation+execution: {precomputed_time + total_execution_time:.6f} seconds")
-    print(f"avg execution per {NUM_OF_TEST} test case: {(total_execution_time) / NUM_OF_TEST:.6f} seconds")
-    print(f"avg precompuation+execution per {NUM_OF_TEST} test case: {(precomputed_time +total_execution_time)/ NUM_OF_TEST:.6f} seconds")
-
-    if error_msgs:
-        print(f'\n{RED}Errors encountered during tests:{RESET}')
-        for msg in error_msgs:
-            print(msg)
-
-    import csv
-
-    # test_nodes: [(node1, node2), ...] 또는 [[node1, node2], ...] 형태
-    with open('test_nodes.csv', 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(['node1_line', 'node1_name', 'node2_line', 'node2_name'])
-        for node1, node2 in test_nodes:
-            writer.writerow([node1[0], node1[1], node2[0], node2[1]])
-
-
-    # case1_1 = [('1', '창동'), ('1', '창동')]
-    # case1_1_2 = [('3', '수서'), ('3', '수서')]
-    # case2_2 = [('1', '도봉'), ('1', '창동')]
-    # case2_3 = [('4', '미아'), ('4', '창동')]
-    # case2_4 = [('1', '지행'), ('1', '청산')]
-    # case2_5 = [('3', '수서'), ('3', '양재')]
-    # case3_6 = [('1','도봉'), ('4', '노원')]
-    # case3_7 = [('3', '수서'), ('5', '개롱')]
-    # case3_8 = [('1', '관악'), ('4', '과천')]
-    # case4_9 = [('1', '동대문'), ('5', '충정로')]
-    # case4_10 = [('4', '노원'), ('5', '충정로')]
-    # case4_11 = [('4', '미아'), ('5', '영등포구청')]
-    # case4_12 = [('3', '주엽'), ('1', '오산')]
-    # case4_13 = [('3', '옥수'), ('4', '반월')]
-    # case4_14 = [('3', '옥수'), ('1', '관악')]
+    # NUM_OF_TEST = 1000
     #
-    # test_case = [('5', '광화문'), ('2', '을지로입구')]
-    # test_case2 = [('2', '충정로'), ('2', '시청')]
+    # all_g_nodes = list(G.nodes)
+    # test_nodes = []
+    # error_msgs = []
+    # with open('test_nodes.csv', 'r', encoding='utf-8') as f:
+    #     reader = csv.reader(f)
+    #     next(reader)
+    #     for row in reader:
+    #         node1 = (row[0], row[1])
+    #         node2 = (row[2], row[3])
+    #         test_nodes.append([node1, node2])
+    #
+    # # for _ in range(NUM_OF_TEST):
+    # #     node1 = random.choice(all_g_nodes)
+    # #     node2 = random.choice(all_g_nodes)
+    # #     test_nodes.append([node1, node2])
+    #
+    # print('== Precomputing transit2transit table ==')
+    # precomputed_start_time = time.time()
+    # t2t_table = transit2transit(TG)
+    # # t2t_table = transit2transit_dial(TG)
+    # precomputed_end_time = time.time()
+    # precomputed_time = precomputed_end_time - precomputed_start_time
+    # print('Precomputed transit2transit table in {:.6f} seconds'.format(precomputed_time))
+    #
+    # total_execution_time = 0
+    #
+    # for i, (node1, node2) in enumerate(test_nodes):
+    #     print(f'\n== Test Case {i+1}/{len(test_nodes)}: {node1} -> {node2} ==')
+    #     start_time = time.time()
+    #     try:
+    #         my_path, my_time = transit_node_routing(node1, node2, t2t_table)
+    #         end_time = time.time()
+    #         execution_time = end_time - start_time
+    #         total_execution_time += execution_time
+    #
+    #         print(f'Execution time: {execution_time:.6f} seconds')
+    #         print('My path:', my_path)
+    #         print('My time:', int(my_time) if isinstance(my_time, (int, float)) else my_time)
+    #
+    #         answer_path = nx.dijkstra_path(G, source=node1, target=node2, weight='weight')
+    #         answer_time = nx.dijkstra_path_length(G, source=node1, target=node2, weight='weight')
+    #         print('Answer path:', answer_path)
+    #         print("Answer time", int(answer_time))
+    #
+    #         if int(my_time) == int(answer_time):
+    #             print(f'{GREEN}Success!{RESET}')
+    #         else:
+    #             print(f'{RED}Fail!{RESET}')
+    #             print(f'My time: {int(my_time)}, Answer time: {int(answer_time)}')
+    #             print(f'My path: {my_path}, Answer path: {answer_path}')
+    #             error_msgs.append(f'Fail for [{node1}, {node2}]: My time: {int(my_time)}, Answer time: {int(answer_time)}')
+    #     except Exception as e:
+    #         print(f'{RED}Error during transit_node_routing for [{node1}, {node2}]: {e}{RESET}')
+    #         error_msgs.append(f'Error for [{node1}, {node2}]: {e}')
+    #
+    # print(f"precompuation+execution: {precomputed_time + total_execution_time:.6f} seconds")
+    # print(f"avg execution per {NUM_OF_TEST} test case: {(total_execution_time) / NUM_OF_TEST:.6f} seconds")
+    # print(f"avg precompuation+execution per {NUM_OF_TEST} test case: {(precomputed_time +total_execution_time)/ NUM_OF_TEST:.6f} seconds")
+    #
+    # if error_msgs:
+    #     print(f'\n{RED}Errors encountered during tests:{RESET}')
+    #     for msg in error_msgs:
+    #         print(msg)
 
-    # error_case1 = [('1', '보산'), ('1', '동묘앞')]
-    # error_case2 = [('1', '회기'), ('4', '동대문역사문화공원')]
-    # error_case3 = [('2', '서초'), ('2', '역삼')]
+    # import csv
     #
-    # test_nodes = [error_case3]
-    #
-    # for node1, node2 in test_nodes:
-    #     print(f'== {node1} -> {node2} ==')
-    #     my_path, my_time = transit_node_routing(node1, node2, transit2transit(TG))
-    #     answer_path = nx.dijkstra_path(G, source=node1, target=node2, weight='weight')
-    #     answer_time = nx.dijkstra_path_length(G, source=node1, target=node2, weight='weight')
-    #
-    #     print('My path:', my_path)
-    #     print('My time:', int(my_time))
-    #     print('Answer path:', answer_path)
-    #     print('Answer time:', answer_time)
-    #     if int(my_time) == int(answer_time):
-    #         print(f'{GREEN}Success!{RESET}')
-    #     else:
-    #         print(f'{RED}Fail!{RESET}')
+    # # test_nodes: [(node1, node2), ...] 또는 [[node1, node2], ...] 형태
+    # with open('test_nodes.csv', 'w', newline='', encoding='utf-8') as f:
+    #     writer = csv.writer(f)
+    #     writer.writerow(['node1_line', 'node1_name', 'node2_line', 'node2_name'])
+    #     for node1, node2 in test_nodes:
+    #         writer.writerow([node1[0], node1[1], node2[0], node2[1]])
+
+
+    case1_1 = [('1', '창동'), ('1', '창동')]
+    case1_1_2 = [('3', '수서'), ('3', '수서')]
+    case2_2 = [('1', '도봉'), ('1', '창동')]
+    case2_3 = [('4', '미아'), ('4', '창동')]
+    case2_4 = [('1', '지행'), ('1', '청산')]
+    case2_5 = [('3', '수서'), ('3', '양재')]
+    case3_6 = [('1','도봉'), ('4', '노원')]
+    case3_7 = [('3', '수서'), ('5', '개롱')]
+    case3_8 = [('1', '관악'), ('4', '과천')]
+    case4_9 = [('1', '동대문'), ('5', '충정로')]
+    case4_10 = [('4', '노원'), ('5', '충정로')]
+    case4_11 = [('4', '미아'), ('5', '영등포구청')]
+    case4_12 = [('3', '주엽'), ('1', '오산')]
+    case4_13 = [('3', '옥수'), ('4', '반월')]
+    case4_14 = [('3', '옥수'), ('1', '관악')]
+
+    test_case = [('5', '광화문'), ('2', '을지로입구')]
+    test_case2 = [('2', '충정로'), ('2', '시청')]
+    test_case3 = [('1', '의정부'), ('2', '홍대입구')]
+
+    error_case1 = [('1', '보산'), ('1', '동묘앞')]
+    error_case2 = [('1', '회기'), ('4', '동대문역사문화공원')]
+    error_case3 = [('2', '서초'), ('2', '역삼')]
+
+    test_nodes = [test_case3]
+
+    for node1, node2 in test_nodes:
+        print(f'== {node1} -> {node2} ==')
+        my_path, my_time = transit_node_routing(node1, node2, transit2transit(TG))
+        answer_path = nx.dijkstra_path(G, source=node1, target=node2, weight='weight')
+        answer_time = nx.dijkstra_path_length(G, source=node1, target=node2, weight='weight')
+
+        print('My path:', my_path)
+        print('My time:', int(my_time))
+        print('Answer path:', answer_path)
+        print('Answer time:', answer_time)
+        if int(my_time) == int(answer_time):
+            print(f'{GREEN}Success!{RESET}')
+        else:
+            print(f'{RED}Fail!{RESET}')
 
 
 
